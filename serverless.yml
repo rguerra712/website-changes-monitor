@@ -1,0 +1,53 @@
+service: website-changes-monitor
+
+frameworkVersion: "2"
+
+custom:
+  snsTopic: ${self:service}-${self:provider.stage}-alert
+  snsTopicArn: arn:aws:sns:us-east-1:#{AWS::AccountId}:${self:custom.snsTopic}
+
+provider:
+  name: aws
+  runtime: nodejs12.x
+  lambdaHashingVersion: 20201221
+  iamRoleStatements:
+    - Effect: "Allow"
+      Resource: ${self:custom.snsTopicArn}
+      Action:
+        - "sns:*"
+  environment:
+    URL_TO_MONITOR: ${file(config.${opt:stage, self:provider.stage, 'dev'}.json):urlToMonitor}
+    MESSAGE_WHEN_CHANGED: ${file(config.${opt:stage, self:provider.stage, 'dev'}.json):messageWhenChanged}
+    SNS_TOPIC_ARN: ${self:custom.snsTopicArn}
+
+plugins:
+  - serverless-pseudo-parameters
+
+functions:
+  monitorForChanges:
+    handler: src/handler.monitorForChanges
+    timeout: 900
+    events:
+      - schedule: rate(1 minute)
+
+resources:
+  Resources:
+    ChangedAlertSNSTopic:
+      Type: AWS::SNS::Topic
+      Properties:
+        DisplayName: Changed Alert SNS Topic
+        TopicName: ${self:custom.snsTopic}
+
+    EmailSNSSubscription:
+      Type: AWS::SNS::Subscription
+      Properties:
+        Endpoint: ${opt:email}
+        Protocol: email
+        TopicArn: { "Ref": "ChangedAlertSNSTopic" }
+
+    PhoneSNSSubscription:
+      Type: AWS::SNS::Subscription
+      Properties:
+        Endpoint: ${opt:sms}
+        Protocol: sms
+        TopicArn: { "Ref": "ChangedAlertSNSTopic" }
